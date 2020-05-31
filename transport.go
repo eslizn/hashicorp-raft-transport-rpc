@@ -6,21 +6,42 @@ import (
 	"io"
 	"io/ioutil"
 	"net/rpc"
-	"net/rpc/jsonrpc"
+	"net/url"
+	"strings"
+	"sync"
 )
 
 type Transport struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	id          string
-	addr        string
-	rpcCh       chan raft.RPC
-	maxPipeline int
+	id              raft.ServerID
+	addr            raft.ServerAddress
+	ctx             context.Context
+	rpcCh           chan raft.RPC
+	heartbeatFn     func(raft.RPC)
+	heartbeatFnLock sync.RWMutex
+	maxPipeline     int
+	clients         sync.Map
 }
 
 func (t *Transport) getClient(id raft.ServerID, addr raft.ServerAddress) (*rpc.Client, error) {
 	//@todo check already join cluster
-	return jsonrpc.NewClient(&client{url: string(addr)}), nil
+	client, load := t.clients.Load(addr)
+	if !load {
+		parse, err := url.Parse(string(addr))
+		if err != nil {
+			return nil, err
+		}
+		client, err = rpc.DialHTTP("tcp", parse.Host)
+		if err != nil {
+			return nil, err
+		}
+		//client = jsonrpc.NewClient(&rpcClient{
+		//	ctx:  t.ctx,
+		//	url:  parse,
+		//	data: make(chan io.ReadCloser),
+		//})
+		t.clients.Store(addr, client)
+	}
+	return client.(*rpc.Client), nil
 }
 
 func (t *Transport) Consumer() <-chan raft.RPC {
@@ -28,15 +49,17 @@ func (t *Transport) Consumer() <-chan raft.RPC {
 }
 
 func (t *Transport) LocalAddr() raft.ServerAddress {
-	return raft.ServerAddress(t.addr)
+	return t.addr
 }
 
 func (t *Transport) AppendEntries(id raft.ServerID, addr raft.ServerAddress, args *raft.AppendEntriesRequest, resp *raft.AppendEntriesResponse) error {
+	//fmt.Printf("AppendEntries(%s, %s, %+v)\n", id, addr, args)
 	client, err := t.getClient(id, addr)
 	if err != nil {
 		return err
 	}
-	return client.Call("AppendEntries", args, resp)
+	err = client.Call("Service.AppendEntries", args, resp)
+	return err
 }
 
 func (t *Transport) AppendEntriesPipeline(id raft.ServerID, addr raft.ServerAddress) (raft.AppendPipeline, error) {
@@ -46,7 +69,6 @@ func (t *Transport) AppendEntriesPipeline(id raft.ServerID, addr raft.ServerAddr
 	}
 	p := &pipeline{
 		ctx:         t.ctx,
-		ctxCancel:   t.cancel,
 		client:      client,
 		doneCh:      make(chan raft.AppendFuture, t.maxPipeline),
 		progressCh:  make(chan *future, t.maxPipeline),
@@ -61,7 +83,7 @@ func (t *Transport) RequestVote(id raft.ServerID, addr raft.ServerAddress, args 
 	if err != nil {
 		return err
 	}
-	return client.Call("RequestVote", args, resp)
+	return client.Call("Service.RequestVote", args, resp)
 }
 
 func (t *Transport) InstallSnapshot(id raft.ServerID, addr raft.ServerAddress, args *raft.InstallSnapshotRequest, resp *raft.InstallSnapshotResponse, data io.Reader) error {
@@ -76,7 +98,7 @@ func (t *Transport) InstallSnapshot(id raft.ServerID, addr raft.ServerAddress, a
 	if err != nil {
 		return err
 	}
-	return client.Call("InstallSnapshot", req, resp)
+	return client.Call("Service.InstallSnapshot", req, resp)
 }
 
 func (t *Transport) TimeoutNow(id raft.ServerID, addr raft.ServerAddress, args *raft.TimeoutNowRequest, resp *raft.TimeoutNowResponse) error {
@@ -84,15 +106,23 @@ func (t *Transport) TimeoutNow(id raft.ServerID, addr raft.ServerAddress, args *
 	if err != nil {
 		return err
 	}
-	return client.Call("TimeoutNow", args, resp)
+	return client.Call("Service.TimeoutNow", args, resp)
 }
 
 func (t *Transport) EncodePeer(id raft.ServerID, addr raft.ServerAddress) []byte {
-	return []byte(addr)
+	return []byte(strings.Join([]string{string(id), string(addr)}, "|"))
 }
 
-func (t *Transport) DecodePeer(addr []byte) raft.ServerAddress {
-	return raft.ServerAddress(addr)
+func (t *Transport) DecodePeer(data []byte) raft.ServerAddress {
+	list := strings.Split(string(data), "|")
+	if len(list) > 1 {
+		return raft.ServerAddress(strings.Join(list[1:], "|"))
+	}
+	return ""
 }
 
-func (t *Transport) SetHeartbeatHandler(cb func(rpc raft.RPC)) {}
+func (t *Transport) SetHeartbeatHandler(cb func(rpc raft.RPC)) {
+	t.heartbeatFnLock.Lock()
+	defer t.heartbeatFnLock.Unlock()
+	t.heartbeatFn = cb
+}
