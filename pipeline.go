@@ -46,61 +46,17 @@ type pipeline struct {
 	maxPipeline int
 }
 
-func (p *pipeline) progress() (retErr error) {
-	respCh := make(chan *future, p.maxPipeline)
-	defer func() {
-		p.Close()
-		close(respCh)
-		for call := range respCh {
-			call.respCh <- retErr
+func (p *pipeline) progress() error {
+	defer p.Close()
+	for {
+		select {
+		case <-p.ctx.Done():
+			return context.Canceled
+		case call := <-p.progressCh:
+			call.respCh <- p.client.Call("AppendEntries", call.args, call.resp)
+			p.doneCh <- call
 		}
-	}()
-	//p.client.Call()
-	//p.client.Go()
-	//go func() {
-	//	defer p.Close()
-	//	for {
-	//		//p.client.Call()
-	//
-	//		msg, err := p.client.Recv()
-	//		if err != nil {
-	//			return
-	//		}
-	//		select {
-	//		case <-p.ctx.Done():
-	//			return
-	//		case r := <-respCh:
-	//			if msg.Error != "" {
-	//				err := errors.New(msg.Error)
-	//				r.respCh <- err
-	//				return
-	//			}
-	//
-	//			msg.Response.CopyToRaft(r.resp)
-	//			r.respCh <- nil
-	//			p.doneCh <- r
-	//		}
-	//	}
-	//}()
-	//
-	//for {
-	//	select {
-	//	case <-p.ctx.Done():
-	//		return context.Canceled
-	//	case call := <-p.pipelineCh:
-	//		select {
-	//		case respCh <- call:
-	//		case <-p.ctx.Done():
-	//			call.respCh <- context.Canceled
-	//			return context.Canceled
-	//		}
-	//		p.client.Call(call.args.Term)
-	//		if err := p.client.Send(call.args); err != nil {
-	//			return err
-	//		}
-	//	}
-	//}
-	return nil
+	}
 }
 
 func (p *pipeline) AppendEntries(
@@ -129,5 +85,7 @@ func (p *pipeline) Consumer() <-chan raft.AppendFuture {
 
 func (p *pipeline) Close() error {
 	p.ctxCancel()
+	close(p.doneCh)
+	close(p.progressCh)
 	return nil
 }

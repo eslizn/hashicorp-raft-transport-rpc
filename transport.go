@@ -1,22 +1,26 @@
 package jsonrpc
 
 import (
-	"io"
-	"net/rpc"
-
+	"context"
 	"github.com/hashicorp/raft"
+	"io"
+	"io/ioutil"
+	"net/rpc"
+	"net/rpc/jsonrpc"
 )
 
 type Transport struct {
-	id    string
-	addr  string
-	rpcCh chan raft.RPC
+	ctx         context.Context
+	cancel      context.CancelFunc
+	id          string
+	addr        string
+	rpcCh       chan raft.RPC
+	maxPipeline int
 }
 
 func (t *Transport) getClient(id raft.ServerID, addr raft.ServerAddress) (*rpc.Client, error) {
-	//raft.Transport()
-	//raft.NewTCPTransport()
-	return nil, nil
+	//@todo check already join cluster
+	return jsonrpc.NewClient(&client{url: string(addr)}), nil
 }
 
 func (t *Transport) Consumer() <-chan raft.RPC {
@@ -36,7 +40,20 @@ func (t *Transport) AppendEntries(id raft.ServerID, addr raft.ServerAddress, arg
 }
 
 func (t *Transport) AppendEntriesPipeline(id raft.ServerID, addr raft.ServerAddress) (raft.AppendPipeline, error) {
-	return nil, nil
+	client, err := t.getClient(id, addr)
+	if err != nil {
+		return nil, err
+	}
+	p := &pipeline{
+		ctx:         t.ctx,
+		ctxCancel:   t.cancel,
+		client:      client,
+		doneCh:      make(chan raft.AppendFuture, t.maxPipeline),
+		progressCh:  make(chan *future, t.maxPipeline),
+		maxPipeline: t.maxPipeline,
+	}
+	go p.progress()
+	return p, nil
 }
 
 func (t *Transport) RequestVote(id raft.ServerID, addr raft.ServerAddress, args *raft.RequestVoteRequest, resp *raft.RequestVoteResponse) error {
@@ -52,7 +69,14 @@ func (t *Transport) InstallSnapshot(id raft.ServerID, addr raft.ServerAddress, a
 	if err != nil {
 		return err
 	}
-	return client.Call("InstallSnapshot", args, resp)
+	req := &InstallSnapshotRequest{
+		InstallSnapshotRequest: args,
+	}
+	req.Data, err = ioutil.ReadAll(data)
+	if err != nil {
+		return err
+	}
+	return client.Call("InstallSnapshot", req, resp)
 }
 
 func (t *Transport) TimeoutNow(id raft.ServerID, addr raft.ServerAddress, args *raft.TimeoutNowRequest, resp *raft.TimeoutNowResponse) error {
@@ -71,6 +95,4 @@ func (t *Transport) DecodePeer(addr []byte) raft.ServerAddress {
 	return raft.ServerAddress(addr)
 }
 
-func (t *Transport) SetHeartbeatHandler(cb func(rpc raft.RPC)) {
-
-}
+func (t *Transport) SetHeartbeatHandler(cb func(rpc raft.RPC)) {}
