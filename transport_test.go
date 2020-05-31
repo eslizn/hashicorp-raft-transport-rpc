@@ -15,9 +15,9 @@ import (
 func TestTransport(t *testing.T) {
 	var (
 		addrs = []string{
-			"http://127.0.0.1:10001/raft/",
-			"http://127.0.0.1:10002/raft/",
-			"http://127.0.0.1:10003/raft/",
+			"tcp://127.0.0.1:10001/raft/",
+			"tcp://127.0.0.1:10002/raft/",
+			//"tcp://127.0.0.1:10003/raft/",
 		}
 		rafts       = make([]*raft.Raft, len(addrs))
 		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
@@ -37,13 +37,16 @@ func TestTransport(t *testing.T) {
 			err := Listen(trans)
 			if err != nil {
 				t.Error(err)
+				cancel()
+				return
 			}
 		}()
-		config.LogLevel = "ERROR" //"WARN"
+		time.Sleep(time.Second)
+		config.LogLevel = "WARN"
 		config.LocalID = raft.ServerID(fmt.Sprint(k))
 		rafts[k], err = raft.NewRaft(config, fsm, logs, stable, snapshot, (*Transport)(trans))
 		if err != nil {
-			t.Log(err)
+			t.Error(err)
 			return
 		}
 		if k == 0 {
@@ -55,44 +58,41 @@ func TestTransport(t *testing.T) {
 					},
 				},
 			})
-			for rafts[k].State() != raft.Leader {
+		} else {
+			for rafts[0].State() != raft.Leader {
 				select {
 				case <-ctx.Done():
+					t.Error(context.Canceled)
 					return
 				case <-time.NewTimer(time.Second).C:
 					continue
 				}
 			}
-		} else {
-			future := rafts[0].AddVoter(raft.ServerID(fmt.Sprint(k)), raft.ServerAddress(addrs[k]), 0, 0)
+			//t.Log(rafts[0].State())
+			future := rafts[0].AddVoter(raft.ServerID(fmt.Sprint(k)), raft.ServerAddress(addrs[k]), 0, time.Minute)
 			if future.Error() != nil {
-				t.Logf("AddVoter(%d, %s) error: %s\n", k, addrs[k], future.Error())
+				t.Errorf("AddVoter(%d, %s) error: %s\n", k, addrs[k], future.Error())
+				return
 			}
-
 		}
 	}
 	//fmt.Println("start check")
-	//ready := false
-	//for !ready {
-	//	select {
-	//	case <-time.NewTimer(time.Second).C:
-	//		for k := range rafts {
-	//			if rafts[k].State() == raft.Leader {
-	//				ready = true
-	//				break
-	//			}
-	//		}
-	//	case <-ctx.Done():
-	//		return
-	//	}
-	//}
-	for k := range rafts {
-		t.Logf("%d %s ---> leader: %s\n", k, rafts[k].State(), rafts[k].Leader())
-		t.Logf("%s %+v\n", rafts[k].State(), rafts[k].Apply([]byte("test"), time.Second).Error())
+	leader := false
+	for !leader {
+		select {
+		case <-time.NewTimer(time.Second).C:
+			for k := range rafts {
+				if rafts[k].State() == raft.Leader {
+					leader = true
+					break
+				}
+			}
+		case <-ctx.Done():
+			return
+		}
 	}
 	time.Sleep(5 * time.Second)
 	t.Logf("%+v\n", rafts[0].GetConfiguration().Configuration().Servers)
-
 	//time.Sleep(time.Minute)
 }
 

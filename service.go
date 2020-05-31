@@ -5,9 +5,7 @@ import (
 	"context"
 	"io"
 	"net"
-	"net/http"
 	"net/rpc"
-	"net/rpc/jsonrpc"
 	"net/url"
 
 	"github.com/hashicorp/raft"
@@ -82,21 +80,6 @@ func (s *Service) TimeoutNow(r *raft.TimeoutNowRequest, w *raft.TimeoutNowRespon
 	return nil
 }
 
-func ServeHTTP(srv *Service) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-type", "application/json")
-		service := rpc.NewServer()
-		if err := service.Register(srv); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if err := service.ServeRequest(jsonrpc.NewServerCodec(&rpcServer{ReadCloser: r.Body, Writer: w})); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	})
-}
-
 func Listen(srv *Service) error {
 	parse, err := url.Parse(string(srv.addr))
 	if err != nil {
@@ -112,7 +95,7 @@ func Listen(srv *Service) error {
 	//}()
 	server := rpc.NewServer()
 	server.Register(srv)
-	listen, err := net.Listen("tcp", parse.Host)
+	listen, err := net.Listen(parse.Scheme, parse.Host)
 	if err != nil {
 		return err
 	}
