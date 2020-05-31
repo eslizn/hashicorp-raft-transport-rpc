@@ -12,14 +12,31 @@ import (
 	"github.com/hashicorp/raft"
 )
 
+type Rafts []*raft.Raft
+
+func (rs Rafts) Leader(ctx context.Context) *raft.Raft {
+	for {
+		select {
+		case <-time.NewTimer(time.Second).C:
+			for k := range rs {
+				if rs[k] != nil && rs[k].State() == raft.Leader {
+					return rs[k]
+				}
+			}
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
 func TestTransport(t *testing.T) {
 	var (
 		addrs = []string{
-			"tcp://127.0.0.1:10001/raft/",
-			"tcp://127.0.0.1:10002/raft/",
-			//"tcp://127.0.0.1:10003/raft/",
+			"tcp://127.0.0.1:10001/",
+			"tcp://127.0.0.1:10002/",
+			//"tcp://127.0.0.1:10003/",
 		}
-		rafts       = make([]*raft.Raft, len(addrs))
+		rafts       = make(Rafts, len(addrs))
 		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
 	)
 	defer cancel()
@@ -36,12 +53,15 @@ func TestTransport(t *testing.T) {
 		go func() {
 			err := Listen(trans)
 			if err != nil {
-				t.Error(err)
-				cancel()
+				//t.Error(err)
 				return
 			}
 		}()
 		time.Sleep(time.Second)
+		config.LeaderLeaseTimeout = 3 * time.Second
+		config.CommitTimeout = 3 * time.Second
+		config.ElectionTimeout = 3 * time.Second
+		config.HeartbeatTimeout = 3 * time.Second
 		config.LogLevel = "WARN"
 		config.LocalID = raft.ServerID(fmt.Sprint(k))
 		rafts[k], err = raft.NewRaft(config, fsm, logs, stable, snapshot, (*Transport)(trans))
@@ -59,17 +79,13 @@ func TestTransport(t *testing.T) {
 				},
 			})
 		} else {
-			for rafts[0].State() != raft.Leader {
-				select {
-				case <-ctx.Done():
-					t.Error(context.Canceled)
-					return
-				case <-time.NewTimer(time.Second).C:
-					continue
-				}
+			leader := rafts.Leader(ctx)
+			if leader == nil {
+				t.Error("not found leader")
+				return
 			}
 			//t.Log(rafts[0].State())
-			future := rafts[0].AddVoter(raft.ServerID(fmt.Sprint(k)), raft.ServerAddress(addrs[k]), 0, time.Minute)
+			future := leader.AddVoter(raft.ServerID(fmt.Sprint(k)), raft.ServerAddress(addrs[k]), 0, time.Minute)
 			if future.Error() != nil {
 				t.Errorf("AddVoter(%d, %s) error: %s\n", k, addrs[k], future.Error())
 				return
@@ -77,20 +93,7 @@ func TestTransport(t *testing.T) {
 		}
 	}
 	//fmt.Println("start check")
-	leader := false
-	for !leader {
-		select {
-		case <-time.NewTimer(time.Second).C:
-			for k := range rafts {
-				if rafts[k].State() == raft.Leader {
-					leader = true
-					break
-				}
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
+	t.Logf("leader: %+v\n", rafts.Leader(ctx))
 	time.Sleep(5 * time.Second)
 	t.Logf("%+v\n", rafts[0].GetConfiguration().Configuration().Servers)
 	//time.Sleep(time.Minute)

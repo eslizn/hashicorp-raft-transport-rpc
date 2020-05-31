@@ -25,29 +25,19 @@ type Transport struct {
 
 func (t *Transport) getClient(id raft.ServerID, addr raft.ServerAddress) (*rpc.Client, error) {
 	//@todo check already join cluster
-	parse, err := url.Parse(string(addr))
-	if err != nil {
-		return nil, err
+	client, load := t.clients.Load(id)
+	if !load {
+		parse, err := url.Parse(string(addr))
+		if err != nil {
+			return nil, err
+		}
+		client, err = rpc.DialHTTP(parse.Scheme, parse.Host)
+		if err != nil {
+			return nil, err
+		}
+		t.clients.Store(id, client)
 	}
-	return rpc.DialHTTP(parse.Scheme, parse.Host)
-	//client, load := t.clients.Load(addr)
-	//if !load {
-	//	parse, err := url.Parse(string(addr))
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	client, err = rpc.DialHTTP(parse.Scheme, parse.Host)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	//client = jsonrpc.NewClient(&rpcClient{
-	//	//	ctx:  t.ctx,
-	//	//	url:  parse,
-	//	//	data: make(chan io.ReadCloser),
-	//	//})
-	//	t.clients.Store(addr, client)
-	//}
-	//return client.(*rpc.Client), nil
+	return client.(*rpc.Client), nil
 }
 
 func (t *Transport) Consumer() <-chan raft.RPC {
@@ -59,8 +49,9 @@ func (t *Transport) LocalAddr() raft.ServerAddress {
 }
 
 func (t *Transport) AppendEntries(id raft.ServerID, addr raft.ServerAddress, args *raft.AppendEntriesRequest, resp *raft.AppendEntriesResponse) error {
-	fmt.Println("AppendEntries")
+	fmt.Printf("AppendEntries(%s, %s, %+v, %+v): \n", id, addr, args, resp)
 	client, err := t.getClient(id, addr)
+	fmt.Printf("%s\n", err)
 	if err != nil {
 		return err
 	}
