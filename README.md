@@ -1,1 +1,1 @@
-# hashicorp-raft-transport-jsonrpc
+# hashicorp-raft-transport-rpc
