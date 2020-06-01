@@ -1,8 +1,7 @@
-package jsonrpc
+package rpctrans
 
 import (
 	"context"
-	"fmt"
 	"github.com/hashicorp/raft"
 	"io"
 	"io/ioutil"
@@ -25,20 +24,19 @@ type Transport struct {
 
 func (t *Transport) getClient(id raft.ServerID, addr raft.ServerAddress) (*rpc.Client, error) {
 	//@todo check already join cluster
-	//client, load := t.clients.Load(id)
-	//if !load {
-	parse, err := url.Parse(string(addr))
-	if err != nil {
-		return nil, err
+	client, load := t.clients.Load(id)
+	if !load {
+		parse, err := url.Parse(string(addr))
+		if err != nil {
+			return nil, err
+		}
+		client, err = rpc.Dial("tcp", parse.Host)
+		if err != nil {
+			return nil, err
+		}
+		t.clients.Store(id, client)
 	}
-	return rpc.Dial("tcp", parse.Host)
-	//return jsonrpc.NewClient(&rpcClient{ctx: t.ctx, url: parse, data: make(chan io.ReadCloser)}), nil
-	//if err != nil {
-	//return nil, err
-	//}
-	//t.clients.Store(id, client)
-	//}
-	//return client.(*rpc.Client), nil
+	return client.(*rpc.Client), nil
 }
 
 func (t *Transport) Consumer() <-chan raft.RPC {
@@ -58,7 +56,6 @@ func (t *Transport) AppendEntries(id raft.ServerID, addr raft.ServerAddress, arg
 }
 
 func (t *Transport) AppendEntriesPipeline(id raft.ServerID, addr raft.ServerAddress) (raft.AppendPipeline, error) {
-	fmt.Println("AppendEntriesPipeline")
 	client, err := t.getClient(id, addr)
 	if err != nil {
 		return nil, err
@@ -75,7 +72,6 @@ func (t *Transport) AppendEntriesPipeline(id raft.ServerID, addr raft.ServerAddr
 }
 
 func (t *Transport) RequestVote(id raft.ServerID, addr raft.ServerAddress, args *raft.RequestVoteRequest, resp *raft.RequestVoteResponse) error {
-	fmt.Println("RequestVote")
 	client, err := t.getClient(id, addr)
 	if err != nil {
 		return err
@@ -84,7 +80,6 @@ func (t *Transport) RequestVote(id raft.ServerID, addr raft.ServerAddress, args 
 }
 
 func (t *Transport) InstallSnapshot(id raft.ServerID, addr raft.ServerAddress, args *raft.InstallSnapshotRequest, resp *raft.InstallSnapshotResponse, data io.Reader) error {
-	fmt.Println("InstallSnapshot")
 	client, err := t.getClient(id, addr)
 	if err != nil {
 		return err
@@ -100,7 +95,6 @@ func (t *Transport) InstallSnapshot(id raft.ServerID, addr raft.ServerAddress, a
 }
 
 func (t *Transport) TimeoutNow(id raft.ServerID, addr raft.ServerAddress, args *raft.TimeoutNowRequest, resp *raft.TimeoutNowResponse) error {
-	fmt.Println("TimeoutNow")
 	client, err := t.getClient(id, addr)
 	if err != nil {
 		return err
