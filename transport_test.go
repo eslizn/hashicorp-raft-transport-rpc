@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/rpc"
 	"net/url"
 	"os"
 	"testing"
@@ -11,6 +12,56 @@ import (
 
 	"github.com/hashicorp/raft"
 )
+
+type Rpc struct{}
+
+func (r *Rpc) AppendEntries(req raft.AppendEntriesRequest, rsp *raft.AppendEntriesResponse) error {
+	rsp.Success = true
+	rsp.RPCHeader = req.RPCHeader
+	return nil
+}
+
+func TestRPC(t *testing.T) {
+	srv := rpc.NewServer()
+	err := srv.Register(&Rpc{})
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	t.Log("init")
+	//jsonrpc.
+	//go http.ListenAndServe("127.0.0.1:8080", srv)
+	go func() {
+		listen, err := net.Listen("tcp", ":8080")
+		if err != nil {
+			panic(err)
+		}
+		srv.Accept(listen)
+		//for {
+		//	conn, err := listen.Accept()
+		//	if err != nil {
+		//		//t.Error(err)
+		//		continue
+		//	}
+		//	go srv.ServeConn(conn)
+		//}
+	}()
+	time.Sleep(time.Second)
+	t.Log("start dial")
+	client, err := rpc.Dial("tcp", "127.0.0.1:8080")
+	t.Log("done dial")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	rsp := raft.AppendEntriesResponse{}
+	err = client.Call("Rpc.AppendEntries", raft.AppendEntriesRequest{}, &rsp)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	t.Logf("%+v\n", rsp)
+}
 
 type Rafts []*raft.Raft
 
@@ -32,9 +83,9 @@ func (rs Rafts) Leader(ctx context.Context) *raft.Raft {
 func TestTransport(t *testing.T) {
 	var (
 		addrs = []string{
-			"tcp://127.0.0.1:10001/",
-			"tcp://127.0.0.1:10002/",
-			//"tcp://127.0.0.1:10003/",
+			"http://127.0.0.1:10001/",
+			"http://127.0.0.1:10002/",
+			"http://127.0.0.1:10003/",
 		}
 		rafts       = make(Rafts, len(addrs))
 		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
@@ -51,11 +102,24 @@ func TestTransport(t *testing.T) {
 			trans    = NewService(ctx, fmt.Sprint(k), addrs[k])
 		)
 		go func() {
-			err := Listen(trans)
+			parse, err := url.Parse(string(trans.addr))
 			if err != nil {
-				//t.Error(err)
+				t.Error(err)
 				return
 			}
+			srv := rpc.NewServer()
+			err = srv.Register(trans)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			listen, err := net.Listen("tcp", parse.Host)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			go srv.Accept(listen)
+			<-trans.ctx.Done()
 		}()
 		time.Sleep(time.Second)
 		config.LeaderLeaseTimeout = 3 * time.Second
@@ -87,16 +151,20 @@ func TestTransport(t *testing.T) {
 			//t.Log(rafts[0].State())
 			future := leader.AddVoter(raft.ServerID(fmt.Sprint(k)), raft.ServerAddress(addrs[k]), 0, time.Minute)
 			if future.Error() != nil {
-				t.Errorf("AddVoter(%d, %s) error: %s\n", k, addrs[k], future.Error())
-				return
+				//t.Errorf("AddVoter(%d, %s) error: %s\n", k, addrs[k], future.Error())
+				//return
 			}
 		}
 	}
 	//fmt.Println("start check")
 	t.Logf("leader: %+v\n", rafts.Leader(ctx))
-	time.Sleep(5 * time.Second)
-	t.Logf("%+v\n", rafts[0].GetConfiguration().Configuration().Servers)
-	//time.Sleep(time.Minute)
+	for k := range rafts {
+		t.Logf("%d %s ---> leader: %s\n", k, rafts[k].State(), rafts[k].Leader())
+		t.Logf("%s %+v\n", rafts[k].State(), rafts[k].Apply([]byte("test"), time.Second).Error())
+	}
+	//time.Sleep(5 * time.Second)
+	//t.Logf("%+v\n", rafts.Leader(ctx).GetConfiguration().Configuration().Servers)
+	time.Sleep(time.Minute)
 }
 
 func TestTCPTransport(t *testing.T) {
@@ -125,7 +193,7 @@ func TestTCPTransport(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		config.LogLevel = "ERROR" //"WARN"
+		config.LogLevel = "WARN" //"WARN"
 		config.LocalID = raft.ServerID(fmt.Sprint(k))
 		rafts[k], err = raft.NewRaft(config, fsm, logs, stable, snapshot, trans)
 		if err != nil {

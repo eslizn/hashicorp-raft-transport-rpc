@@ -3,12 +3,9 @@ package jsonrpc
 import (
 	"bytes"
 	"context"
-	"io"
-	"net"
-	"net/rpc"
-	"net/url"
-
 	"github.com/hashicorp/raft"
+	"github.com/jinzhu/copier"
+	"io"
 )
 
 type Service Transport
@@ -49,7 +46,7 @@ func (s *Service) AppendEntries(r *raft.AppendEntriesRequest, w *raft.AppendEntr
 	if err != nil {
 		return err
 	}
-	w = rsp.(*raft.AppendEntriesResponse)
+	copier.Copy(w, rsp)
 	return nil
 }
 
@@ -58,7 +55,7 @@ func (s *Service) RequestVote(r *raft.RequestVoteRequest, w *raft.RequestVoteRes
 	if err != nil {
 		return err
 	}
-	w = rsp.(*raft.RequestVoteResponse)
+	copier.Copy(w, rsp)
 	return nil
 }
 
@@ -67,7 +64,7 @@ func (s *Service) InstallSnapshot(r *InstallSnapshotRequest, w *raft.InstallSnap
 	if err != nil {
 		return err
 	}
-	w = rsp.(*raft.InstallSnapshotResponse)
+	copier.Copy(w, rsp)
 	return nil
 }
 
@@ -76,36 +73,36 @@ func (s *Service) TimeoutNow(r *raft.TimeoutNowRequest, w *raft.TimeoutNowRespon
 	if err != nil {
 		return err
 	}
-	w = rsp.(*raft.TimeoutNowResponse)
+	copier.Copy(w, rsp)
 	return nil
 }
 
-func Listen(srv *Service) error {
-	parse, err := url.Parse(string(srv.addr))
-	if err != nil {
-		return err
-	}
-	//listen := &http.Server{
-	//	Addr:    parse.Host,
-	//	Handler: ServeHTTP(srv),
-	//}
-	//errCh := make(chan error)
-	//go func() {
-	//	errCh <- listen.ListenAndServe()
-	//}()
-	server := rpc.NewServer()
-	server.Register(srv)
-	listen, err := net.Listen(parse.Scheme, parse.Host)
-	if err != nil {
-		return err
-	}
-	defer listen.Close()
-	go func() {
-		server.Accept(listen)
-	}()
-	<-srv.ctx.Done()
-	return context.Canceled
-}
+//func Listen(srv *Service) error {
+//	parse, err := url.Parse(string(srv.addr))
+//	if err != nil {
+//		return err
+//	}
+//	//listen := &http.Server{
+//	//	Addr:    parse.Host,
+//	//	Handler: ServeHTTP(srv),
+//	//}
+//	//errCh := make(chan error)
+//	//go func() {
+//	//	errCh <- listen.ListenAndServe()
+//	//}()
+//	server := rpc.NewServer()
+//	server.Register(srv)
+//	listen, err := net.Listen(parse.Scheme, parse.Host)
+//	if err != nil {
+//		return err
+//	}
+//	defer listen.Close()
+//	go func() {
+//		server.Accept(listen)
+//	}()
+//	<-srv.ctx.Done()
+//	return context.Canceled
+//}
 
 func NewService(ctx context.Context, id string, addr string) *Service {
 	return &Service{
