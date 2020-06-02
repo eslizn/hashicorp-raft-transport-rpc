@@ -9,4 +9,4 @@
 
 # Introduction
 
-** RpcTrans ** implementation [raft](https://github.com/hashicorp/raft) transport
+**RpcTrans** implementation [raft](https://github.com/hashicorp/raft) transport
