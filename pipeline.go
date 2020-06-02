@@ -39,6 +39,7 @@ func (f *future) Response() *raft.AppendEntriesResponse {
 
 type pipeline struct {
 	ctx         context.Context
+	cancelCtx   context.CancelFunc
 	client      *rpc.Client
 	doneCh      chan raft.AppendFuture
 	progressCh  chan *future
@@ -46,7 +47,6 @@ type pipeline struct {
 }
 
 func (p *pipeline) progress() error {
-	defer p.Close()
 	for {
 		select {
 		case <-p.ctx.Done():
@@ -83,7 +83,8 @@ func (p *pipeline) Consumer() <-chan raft.AppendFuture {
 }
 
 func (p *pipeline) Close() error {
-	//close(p.doneCh)
-	//close(p.progressCh)
+	p.cancelCtx()
+	close(p.doneCh)
+	close(p.progressCh)
 	return nil
 }

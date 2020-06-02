@@ -62,14 +62,16 @@ func (t *Transport) AppendEntriesPipeline(id raft.ServerID, addr raft.ServerAddr
 		return nil, err
 	}
 	p := &pipeline{
-		ctx:         t.ctx,
 		client:      client,
 		doneCh:      make(chan raft.AppendFuture, t.maxPipeline),
 		progressCh:  make(chan *future, t.maxPipeline),
 		maxPipeline: t.maxPipeline,
 	}
-	go p.progress()
-	return p, nil
+	p.ctx, p.cancelCtx = context.WithCancel(t.ctx)
+	go func() {
+		err = p.progress()
+	}()
+	return p, err
 }
 
 func (t *Transport) RequestVote(id raft.ServerID, addr raft.ServerAddress, args *raft.RequestVoteRequest, resp *raft.RequestVoteResponse) error {
