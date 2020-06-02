@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"net/rpc"
 	"net/url"
 	"testing"
@@ -65,7 +66,7 @@ func TestTransport(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			go srv.Accept(listen)
+			go http.Serve(listen, srv)
 			<-trans.ctx.Done()
 		}()
 		time.Sleep(time.Second)

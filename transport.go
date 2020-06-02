@@ -30,7 +30,8 @@ func (t *Transport) getClient(id raft.ServerID, addr raft.ServerAddress) (*rpc.C
 		if err != nil {
 			return nil, err
 		}
-		client, err = rpc.Dial("tcp", parse.Host)
+		client, err = rpc.DialHTTPPath("tcp", parse.Host, parse.Path)
+		//client, err = rpc.Dial("tcp", parse.Host)
 		if err != nil {
 			return nil, err
 		}

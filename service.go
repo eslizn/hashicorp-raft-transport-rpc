@@ -77,33 +77,6 @@ func (s *Service) TimeoutNow(r *raft.TimeoutNowRequest, w *raft.TimeoutNowRespon
 	return nil
 }
 
-//func Listen(srv *Service) error {
-//	parse, err := url.Parse(string(srv.addr))
-//	if err != nil {
-//		return err
-//	}
-//	//listen := &http.Server{
-//	//	Addr:    parse.Host,
-//	//	Handler: ServeHTTP(srv),
-//	//}
-//	//errCh := make(chan error)
-//	//go func() {
-//	//	errCh <- listen.ListenAndServe()
-//	//}()
-//	server := rpc.NewServer()
-//	server.Register(srv)
-//	listen, err := net.Listen(parse.Scheme, parse.Host)
-//	if err != nil {
-//		return err
-//	}
-//	defer listen.Close()
-//	go func() {
-//		server.Accept(listen)
-//	}()
-//	<-srv.ctx.Done()
-//	return context.Canceled
-//}
-
 func NewService(ctx context.Context, id string, addr string) *Service {
 	return &Service{
 		id:          raft.ServerID(id),
