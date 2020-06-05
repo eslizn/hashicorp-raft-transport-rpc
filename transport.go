@@ -24,7 +24,7 @@ type Transport struct {
 
 func (t *Transport) GetClient(id raft.ServerID, addr raft.ServerAddress) (*rpc.Client, error) {
 	//@todo check already join cluster
-	client, load := t.clients.Load(id)
+	client, load := t.clients.Load(addr)
 	if !load {
 		parse, err := url.Parse(string(addr))
 		if err != nil {
@@ -34,7 +34,7 @@ func (t *Transport) GetClient(id raft.ServerID, addr raft.ServerAddress) (*rpc.C
 		if err != nil {
 			return nil, err
 		}
-		t.clients.Store(id, client)
+		t.clients.Store(addr, client)
 	}
 	return client.(*rpc.Client), nil
 }
