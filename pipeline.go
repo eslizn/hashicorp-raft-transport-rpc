@@ -52,8 +52,11 @@ func (p *pipeline) progress() error {
 		case <-p.ctx.Done():
 			return context.Canceled
 		case call := <-p.progressCh:
-			call.respCh <- p.client.Call("AppendEntries", call.args, call.resp)
-			p.doneCh <- call
+			//channel closed
+			if call != nil {
+				call.respCh <- p.client.Call("AppendEntries", call.args, call.resp)
+				p.doneCh <- call
+			}
 		}
 	}
 }
@@ -74,8 +77,8 @@ func (p *pipeline) AppendEntries(
 	case <-p.ctx.Done():
 		return nil, context.Canceled
 	case p.progressCh <- call:
+		return call, nil
 	}
-	return call, nil
 }
 
 func (p *pipeline) Consumer() <-chan raft.AppendFuture {
