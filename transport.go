@@ -22,7 +22,7 @@ type Transport struct {
 	clients         sync.Map
 }
 
-func (t *Transport) getClient(id raft.ServerID, addr raft.ServerAddress) (*rpc.Client, error) {
+func (t *Transport) GetClient(id raft.ServerID, addr raft.ServerAddress) (*rpc.Client, error) {
 	//@todo check already join cluster
 	client, load := t.clients.Load(id)
 	if !load {
@@ -31,7 +31,6 @@ func (t *Transport) getClient(id raft.ServerID, addr raft.ServerAddress) (*rpc.C
 			return nil, err
 		}
 		client, err = rpc.DialHTTPPath("tcp", parse.Host, parse.Path)
-		//client, err = rpc.Dial("tcp", parse.Host)
 		if err != nil {
 			return nil, err
 		}
@@ -49,7 +48,7 @@ func (t *Transport) LocalAddr() raft.ServerAddress {
 }
 
 func (t *Transport) AppendEntries(id raft.ServerID, addr raft.ServerAddress, args *raft.AppendEntriesRequest, resp *raft.AppendEntriesResponse) error {
-	client, err := t.getClient(id, addr)
+	client, err := t.GetClient(id, addr)
 	if err != nil {
 		return err
 	}
@@ -57,7 +56,7 @@ func (t *Transport) AppendEntries(id raft.ServerID, addr raft.ServerAddress, arg
 }
 
 func (t *Transport) AppendEntriesPipeline(id raft.ServerID, addr raft.ServerAddress) (raft.AppendPipeline, error) {
-	client, err := t.getClient(id, addr)
+	client, err := t.GetClient(id, addr)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +74,7 @@ func (t *Transport) AppendEntriesPipeline(id raft.ServerID, addr raft.ServerAddr
 }
 
 func (t *Transport) RequestVote(id raft.ServerID, addr raft.ServerAddress, args *raft.RequestVoteRequest, resp *raft.RequestVoteResponse) error {
-	client, err := t.getClient(id, addr)
+	client, err := t.GetClient(id, addr)
 	if err != nil {
 		return err
 	}
@@ -83,7 +82,7 @@ func (t *Transport) RequestVote(id raft.ServerID, addr raft.ServerAddress, args 
 }
 
 func (t *Transport) InstallSnapshot(id raft.ServerID, addr raft.ServerAddress, args *raft.InstallSnapshotRequest, resp *raft.InstallSnapshotResponse, data io.Reader) error {
-	client, err := t.getClient(id, addr)
+	client, err := t.GetClient(id, addr)
 	if err != nil {
 		return err
 	}
@@ -98,7 +97,7 @@ func (t *Transport) InstallSnapshot(id raft.ServerID, addr raft.ServerAddress, a
 }
 
 func (t *Transport) TimeoutNow(id raft.ServerID, addr raft.ServerAddress, args *raft.TimeoutNowRequest, resp *raft.TimeoutNowResponse) error {
-	client, err := t.getClient(id, addr)
+	client, err := t.GetClient(id, addr)
 	if err != nil {
 		return err
 	}
